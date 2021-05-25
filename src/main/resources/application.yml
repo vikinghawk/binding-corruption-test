@@ -1,0 +1,36 @@
+vcap:
+  application:
+    name: '@project.name@'
+spring:
+  application:
+    name: '@project.name@'
+  main:
+    banner-mode: "off"
+  cloud:
+    bus:
+      enabled: false
+    config:
+      enabled: false
+eureka:
+  client:
+    enabled: false
+info:
+  build:
+    artifact: '@project.artifactId@'
+    name: '@project.name@'
+    description: '@project.description@'
+    version: '@project.version@'
+    
+---
+spring:
+  profiles: dev
+binding-corruption-test:
+  enabled: true
+  rabbitServiceName: rabbitmq-02
+---
+spring:
+  profiles: detector
+binding-corruption-detector:
+  enabled: true
+binding-corruption-test:
+  rabbitServiceName: rabbitmq-02
