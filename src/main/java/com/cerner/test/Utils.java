@@ -151,7 +151,8 @@ public class Utils {
         });
     List<Long> delays = customProps.getRecoveryDelays();
     if (delays.isEmpty()) {
-      delays = Arrays.asList(1L, 1000L, 1000L, 2000L, 3000L, 5000L, 8000L, 13000L);
+      //      delays = Arrays.asList(1L, 1000L, 1000L, 2000L, 3000L, 5000L, 8000L, 13000L);
+      delays = Arrays.asList(5000L);
     }
     cf.setRecoveryDelayHandler(new ExponentialBackoffDelayHandler(delays));
     // configure timeouts
