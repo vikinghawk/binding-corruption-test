@@ -48,14 +48,16 @@ public class BindingCorruptionDetector implements CommandLineRunner, Environment
     Utils.initTasConfig(rabbitProps, environment, testProps, detectorProps);
     try (final AutorecoveringConnection connection =
         Utils.createConnection(rabbitProps, testProps, "BindingCorruptionDetector")) {
-      detectBindingCorruption(connection, false);
+      final Client client = Utils.createMgmtClient(rabbitProps, detectorProps);
+      detectBindingCorruption(connection, client, false);
     }
   }
 
   private void detectBindingCorruption(
-      final AutorecoveringConnection connection, final boolean isVerifyingAfterRepair)
+      final AutorecoveringConnection connection,
+      final Client client,
+      final boolean isVerifyingAfterRepair)
       throws Exception {
-    final Client client = Utils.createMgmtClient(rabbitProps, detectorProps);
     // get all bindings
     log.info("Finding all topic bindings");
     final Set<String> routingKeys =
@@ -118,7 +120,7 @@ public class BindingCorruptionDetector implements CommandLineRunner, Environment
             .forEach(binding -> repairBinding(client, binding));
         log.info(
             "Finished repairing bindings. Re-running BindingCorruptionDetector to verify bindings were fixed.");
-        detectBindingCorruption(connection, true);
+        detectBindingCorruption(connection, client, true);
       }
     }
   }
