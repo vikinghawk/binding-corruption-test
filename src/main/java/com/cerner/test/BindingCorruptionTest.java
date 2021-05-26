@@ -42,6 +42,8 @@ public class BindingCorruptionTest implements EnvironmentAware {
   public void start() throws Exception {
     Utils.initTasConfig(rabbitProps, environment, testProps, null);
     final String queuePrefix = testProps.getQueueNamePrefix() + System.currentTimeMillis() + "-";
+    final String routingKeyPrefix =
+        testProps.getRoutingKeyPrefix() + System.currentTimeMillis() + ".";
     int totalQueueCount = 0;
     boolean exchangeDeclared = false;
     for (int i = 1; i <= testProps.getConnections(); i++) {
@@ -74,9 +76,7 @@ public class BindingCorruptionTest implements EnvironmentAware {
           final String queueName = queuePrefix + i + "-" + j + "-" + k;
           channel.queueDeclare(queueName, false, false, testProps.isAutoDelete(), null);
           channel.queueBind(
-              queueName,
-              testProps.getTopicExchange(),
-              testProps.getRoutingKeyPrefix() + ++totalQueueCount);
+              queueName, testProps.getTopicExchange(), routingKeyPrefix + ++totalQueueCount);
           channel.basicConsume(
               queueName,
               new DefaultConsumer(channel) {
