@@ -17,6 +17,7 @@ public class BindingCorruptionTestProperties {
   protected boolean autoDelete = true;
   protected int maxTopologyRecoveryRetries = 10;
   protected String rabbitServiceName;
+  protected int publishInterval = 5000;
 
   public List<Long> getRecoveryDelays() {
     return recoveryDelays;

@@ -87,7 +87,7 @@ public class BindingCorruptionTest implements EnvironmentAware {
                     final BasicProperties properties,
                     final byte[] body)
                     throws IOException {
-                  log.info(
+                  log.debug(
                       "Got message={} from connection={}, channel={}",
                       new String(body, StandardCharsets.UTF_8),
                       connectionName,

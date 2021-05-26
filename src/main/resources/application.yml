@@ -23,7 +23,7 @@ info:
     
 ---
 spring:
-  profiles: dev
+  profiles: test
 binding-corruption-test:
   enabled: true
   rabbitServiceName: rabbitmq-02
