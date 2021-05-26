@@ -16,6 +16,7 @@ import com.rabbitmq.client.impl.recovery.AutorecoveringConnection;
 import com.rabbitmq.client.impl.recovery.RecordedConsumer;
 import com.rabbitmq.client.impl.recovery.RecordedExchange;
 import com.rabbitmq.client.impl.recovery.TopologyRecoveryFilter;
+import com.rabbitmq.client.impl.recovery.TopologyRecoveryRetryLogic;
 import com.rabbitmq.http.client.Client;
 import com.rabbitmq.http.client.ClientParameters;
 import com.rabbitmq.http.client.HttpComponentsRestTemplateConfigurator;
@@ -155,6 +156,11 @@ public class Utils {
       delays = Arrays.asList(2000L);
     }
     cf.setRecoveryDelayHandler(new ExponentialBackoffDelayHandler(delays));
+    cf.setTopologyRecoveryRetryHandler(
+        TopologyRecoveryRetryLogic.RETRY_ON_QUEUE_NOT_FOUND_RETRY_HANDLER
+            .retryAttempts(3)
+            .backoffPolicy(nbAttempts -> Thread.sleep(nbAttempts * 1000L))
+            .build());
     // configure timeouts
     cf.setRequestedHeartbeat(30);
     cf.setShutdownTimeout(5000);
@@ -181,6 +187,7 @@ public class Utils {
     private final RetryingExceptionHandler exceptionHandler;
     private final BindingCorruptionTestProperties props;
     private int recoveryRetries = 0;
+    private volatile long lastConnectionLoss;
 
     RetryingRecoveryListener(
         final AutorecoveringConnection connection,
@@ -195,6 +202,7 @@ public class Utils {
 
     @Override
     public void handleRecoveryStarted(final Recoverable recoverable) {
+      lastConnectionLoss = System.nanoTime();
       log.info("Recovery started for connection={}", name);
     }
 
@@ -215,10 +223,10 @@ public class Utils {
               recoveryRetries,
               recoveryRetries,
               props.getMaxTopologyRecoveryRetries());
-          forceClose(connection, recoveryRetries);
+          forceClose(connection, recoveryRetries, lastConnectionLoss);
         } else {
-          log.warn(
-              "Finished recovery for connection={} with {} recovery errors! Reached max recovery retry attempts. Continuing on with failed recovery.",
+          log.error(
+              "WARNING! Finished recovery for connection={} with {} recovery errors! Reached max recovery retry attempts. Continuing on with failed recovery.",
               name,
               errorCount);
           recoveryRetries = 0;
@@ -229,12 +237,17 @@ public class Utils {
       }
     }
 
-    void forceClose(final AutorecoveringConnection connection, final long waitSeconds) {
+    void forceClose(
+        final AutorecoveringConnection connection,
+        final long waitSeconds,
+        final long expectedLastConnectionLoss) {
       final ScheduledExecutorService exec = Executors.newSingleThreadScheduledExecutor();
       exec.schedule(
           () -> {
             try {
-              if (connection.isOpen()) {
+              if (!connection.isOpen() || expectedLastConnectionLoss != lastConnectionLoss) {
+                log.info("Not force closing connection={} as it was already closed", name);
+              } else {
                 connection
                     .getDelegate()
                     .close(
@@ -243,7 +256,8 @@ public class Utils {
                         false,
                         new Exception("Force closing connection to retry failed recovery"));
               }
-              return null;
+            } catch (final Exception e) {
+              log.error("Error force closing connection={} to retry failed recovery", name, e);
             } finally {
               exec.shutdown();
             }
