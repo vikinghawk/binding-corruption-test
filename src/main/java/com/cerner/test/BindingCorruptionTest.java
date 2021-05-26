@@ -99,6 +99,9 @@ public class BindingCorruptionTest implements EnvironmentAware {
       }
     }
     log.info("Finished creating {} connections and {} queues", connections.size(), totalQueueCount);
+    if (testProps.getPublishInterval() > 0) {
+      // TODO add some published message load
+    }
   }
 
   @PreDestroy
