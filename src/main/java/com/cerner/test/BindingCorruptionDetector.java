@@ -67,7 +67,7 @@ public class BindingCorruptionDetector implements CommandLineRunner, Environment
             .stream()
             .map(BindingInfo::getRoutingKey)
             .collect(Collectors.toSet());
-
+    // publish mandatory messages to each routing key and wait for any returned ones
     final List<Return> returns = Collections.synchronizedList(new ArrayList<>());
     try (final Channel channel = connection.createChannel()) {
       channel.addReturnListener(

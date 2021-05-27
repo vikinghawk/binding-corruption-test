@@ -48,13 +48,13 @@ public class BindingCorruptionTest implements EnvironmentAware {
   @PostConstruct
   public void start() throws Exception {
     Utils.initTasConfig(rabbitProps, environment, testProps, null);
-    final String queuePrefix = testProps.getQueueNamePrefix() + System.currentTimeMillis() + "-";
-    final String routingKeyPrefix =
-        testProps.getRoutingKeyPrefix() + System.currentTimeMillis() + ".";
+    final long now = System.currentTimeMillis();
+    final String queuePrefix = testProps.getQueueNamePrefix() + now + "-";
+    final String routingKeyPrefix = testProps.getRoutingKeyPrefix() + now + ".";
     int totalQueueCount = 0;
     boolean exchangeDeclared = false;
     for (int i = 1; i <= testProps.getConnections(); i++) {
-      final String connectionName = "BindingCorruptionTest-" + i;
+      final String connectionName = "BindingCorruptionTest-" + now + "-" + i;
       final AutorecoveringConnection connection =
           Utils.createConnection(rabbitProps, testProps, connectionName);
       connections.add(connection);

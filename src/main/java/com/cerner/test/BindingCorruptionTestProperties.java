@@ -20,6 +20,6 @@ public class BindingCorruptionTestProperties {
   protected int maxTopologyRecoveryRetries = 100;
   protected int maxConnectionResetRecoveryRetries = 0;
   protected String rabbitServiceName;
-  protected long publishInterval = 5000;
+  protected long publishInterval = 10000;
   protected int publishThreads = 5;
 }
