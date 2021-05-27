@@ -94,20 +94,24 @@ public class BindingCorruptionTest implements EnvironmentAware {
                     final BasicProperties properties,
                     final byte[] body)
                     throws IOException {
-                  if (properties.getHeaders().get("BindingCorruptionDetector") != null) {
-                    log.info(
-                        "Got detector message={} from connection={}, channel={}",
-                        new String(body, StandardCharsets.UTF_8),
-                        connectionName,
-                        getChannel().getChannelNumber());
-                  } else {
-                    log.debug(
-                        "Got message={} from connection={}, channel={}",
-                        new String(body, StandardCharsets.UTF_8),
-                        connectionName,
-                        getChannel().getChannelNumber());
+                  try {
+                    if (properties != null
+                        && properties.getHeaders().get("BindingCorruptionDetector") != null) {
+                      log.info(
+                          "Got detector message={} from connection={}, channel={}",
+                          new String(body, StandardCharsets.UTF_8),
+                          connectionName,
+                          getChannel().getChannelNumber());
+                    } else {
+                      log.debug(
+                          "Got message={} from connection={}, channel={}",
+                          new String(body, StandardCharsets.UTF_8),
+                          connectionName,
+                          getChannel().getChannelNumber());
+                    }
+                  } finally {
+                    getChannel().basicAck(envelope.getDeliveryTag(), false);
                   }
-                  getChannel().basicAck(envelope.getDeliveryTag(), false);
                 }
               });
         }
