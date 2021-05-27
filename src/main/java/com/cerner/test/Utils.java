@@ -15,14 +15,18 @@ import com.rabbitmq.client.impl.ForgivingExceptionHandler;
 import com.rabbitmq.client.impl.recovery.AutorecoveringConnection;
 import com.rabbitmq.client.impl.recovery.BackoffPolicy;
 import com.rabbitmq.client.impl.recovery.DefaultRetryHandler;
+import com.rabbitmq.client.impl.recovery.RecordedBinding;
 import com.rabbitmq.client.impl.recovery.RecordedConsumer;
 import com.rabbitmq.client.impl.recovery.RecordedEntity;
 import com.rabbitmq.client.impl.recovery.RecordedExchange;
+import com.rabbitmq.client.impl.recovery.RecordedQueue;
+import com.rabbitmq.client.impl.recovery.RecordedQueueBinding;
 import com.rabbitmq.client.impl.recovery.TopologyRecoveryFilter;
 import com.rabbitmq.client.impl.recovery.TopologyRecoveryRetryLogic;
 import com.rabbitmq.http.client.Client;
 import com.rabbitmq.http.client.ClientParameters;
 import com.rabbitmq.http.client.HttpComponentsRestTemplateConfigurator;
+import com.rabbitmq.utility.Utility;
 import java.io.IOException;
 import java.net.MalformedURLException;
 import java.net.Socket;
@@ -30,7 +34,10 @@ import java.net.URISyntaxException;
 import java.security.KeyManagementException;
 import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map.Entry;
+import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -191,6 +198,51 @@ public class Utils {
   /* Same as TopologyRecoveryRetryLogic.RETRY_ON_QUEUE_NOT_FOUND_RETRY_HANDLER but with modified logging */
   static class CustomRetryHandler extends DefaultRetryHandler {
 
+    // TODO Submit PR back to amqp-client
+    public static final DefaultRetryHandler.RetryOperation<Void>
+        RECOVER_PREVIOUS_AUTO_DELETE_QUEUES =
+            context -> {
+              if (context.entity() instanceof RecordedQueue) {
+                AutorecoveringConnection connection = context.connection();
+                RecordedQueue queue = context.queue();
+                // recover all queues for the same channel that had already been recovered
+                // successfully before this queue failed. If the previous ones were auto-delete or
+                // exclusive, they need recovered again
+                for (Entry<String, RecordedQueue> entry :
+                    Utility.copy(connection.getRecordedQueues()).entrySet()) {
+                  if (entry.getValue() == queue) {
+                    // we have gotten to the queue in this context. Since this is an ordered map we
+                    // can now break as we know we have recovered all the earlier queues on this
+                    // channel
+                    break;
+                  } else if (queue.getChannel() == entry.getValue().getChannel()
+                      && entry.getValue().isAutoDelete()) {
+                    // TODO need to expose RecordedQueue.isExclusive() to be used here too
+                    connection.recoverQueue(entry.getKey(), entry.getValue(), false);
+                  }
+                }
+              } else if (context.entity() instanceof RecordedQueueBinding) {
+                AutorecoveringConnection connection = context.connection();
+                Set<String> queues = new LinkedHashSet<>();
+                for (Entry<String, RecordedQueue> entry :
+                    Utility.copy(context.connection().getRecordedQueues()).entrySet()) {
+                  if (context.entity().getChannel() == entry.getValue().getChannel()
+                      && entry.getValue().isAutoDelete()) { // TODO isExclusive here too
+                    connection.recoverQueue(entry.getKey(), entry.getValue(), false);
+                    queues.add(entry.getValue().getName());
+                  }
+                }
+                for (final RecordedBinding binding :
+                    Utility.copy(context.connection().getRecordedBindings())) {
+                  if (binding instanceof RecordedQueueBinding
+                      && queues.contains(binding.getDestination())) {
+                    binding.recover();
+                  }
+                }
+              }
+              return null;
+            };
+
     private final String connectionName;
 
     public CustomRetryHandler(
@@ -200,16 +252,15 @@ public class Utils {
           (q, e) -> false,
           TopologyRecoveryRetryLogic.CHANNEL_CLOSED_NOT_FOUND,
           TopologyRecoveryRetryLogic.CHANNEL_CLOSED_NOT_FOUND,
-          // TODO I believe there is still a bug in this logic...
-          // need to recover any previous auto-delete queues belonging to this channel
-          // that may be deleted when the channel dies
-          TopologyRecoveryRetryLogic.RECOVER_CHANNEL.andThen(
-              TopologyRecoveryRetryLogic.RECOVER_QUEUE),
+          TopologyRecoveryRetryLogic.RECOVER_CHANNEL
+              .andThen(TopologyRecoveryRetryLogic.RECOVER_QUEUE)
+              .andThen(RECOVER_PREVIOUS_AUTO_DELETE_QUEUES),
           ctx -> null,
           TopologyRecoveryRetryLogic.RECOVER_CHANNEL
               .andThen(TopologyRecoveryRetryLogic.RECOVER_BINDING_QUEUE)
               .andThen(TopologyRecoveryRetryLogic.RECOVER_BINDING)
-              .andThen(TopologyRecoveryRetryLogic.RECOVER_PREVIOUS_QUEUE_BINDINGS),
+              .andThen(TopologyRecoveryRetryLogic.RECOVER_PREVIOUS_QUEUE_BINDINGS)
+              .andThen(RECOVER_PREVIOUS_AUTO_DELETE_QUEUES),
           TopologyRecoveryRetryLogic.RECOVER_CHANNEL
               .andThen(TopologyRecoveryRetryLogic.RECOVER_CONSUMER_QUEUE)
               .andThen(TopologyRecoveryRetryLogic.RECOVER_CONSUMER)
