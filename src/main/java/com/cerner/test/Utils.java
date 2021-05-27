@@ -13,7 +13,10 @@ import com.rabbitmq.client.TopologyRecoveryException;
 import com.rabbitmq.client.impl.DefaultCredentialsProvider;
 import com.rabbitmq.client.impl.ForgivingExceptionHandler;
 import com.rabbitmq.client.impl.recovery.AutorecoveringConnection;
+import com.rabbitmq.client.impl.recovery.BackoffPolicy;
+import com.rabbitmq.client.impl.recovery.DefaultRetryHandler;
 import com.rabbitmq.client.impl.recovery.RecordedConsumer;
+import com.rabbitmq.client.impl.recovery.RecordedEntity;
 import com.rabbitmq.client.impl.recovery.RecordedExchange;
 import com.rabbitmq.client.impl.recovery.TopologyRecoveryFilter;
 import com.rabbitmq.client.impl.recovery.TopologyRecoveryRetryLogic;
@@ -162,10 +165,10 @@ public class Utils {
     }
     cf.setRecoveryDelayHandler(new ExponentialBackoffDelayHandler(delays));
     cf.setTopologyRecoveryRetryHandler(
-        TopologyRecoveryRetryLogic.RETRY_ON_QUEUE_NOT_FOUND_RETRY_HANDLER
-            .retryAttempts(customProps.getMaxTopologyRecoveryRetries())
-            .backoffPolicy(nbAttempts -> Thread.sleep(nbAttempts * 100L))
-            .build());
+        new CustomRetryHandler(
+            customProps.getMaxTopologyRecoveryRetries(),
+            nbAttempts -> Thread.sleep(Math.min(nbAttempts * 1000L, 5000L)),
+            name));
     // configure timeouts
     cf.setRequestedHeartbeat(30);
     cf.setShutdownTimeout(5000);
@@ -183,6 +186,49 @@ public class Utils {
     cf.setChannelShouldCheckRpcResponseType(true);
     cf.setExceptionHandler(new RetryingExceptionHandler(name));
     return cf;
+  }
+
+  /* Same as TopologyRecoveryRetryLogic.RETRY_ON_QUEUE_NOT_FOUND_RETRY_HANDLER but with modified logging */
+  static class CustomRetryHandler extends DefaultRetryHandler {
+
+    private final String connectionName;
+
+    public CustomRetryHandler(
+        final int retryAttempts, final BackoffPolicy backoffPolicy, final String connectionName) {
+      super(
+          TopologyRecoveryRetryLogic.CHANNEL_CLOSED_NOT_FOUND,
+          (q, e) -> false,
+          TopologyRecoveryRetryLogic.CHANNEL_CLOSED_NOT_FOUND,
+          TopologyRecoveryRetryLogic.CHANNEL_CLOSED_NOT_FOUND,
+          // TODO I believe there is still a bug in this logic...
+          // need to recover any previous auto-delete queues belonging to this channel
+          // that may be deleted when the channel dies
+          TopologyRecoveryRetryLogic.RECOVER_CHANNEL.andThen(
+              TopologyRecoveryRetryLogic.RECOVER_QUEUE),
+          ctx -> null,
+          TopologyRecoveryRetryLogic.RECOVER_CHANNEL
+              .andThen(TopologyRecoveryRetryLogic.RECOVER_BINDING_QUEUE)
+              .andThen(TopologyRecoveryRetryLogic.RECOVER_BINDING)
+              .andThen(TopologyRecoveryRetryLogic.RECOVER_PREVIOUS_QUEUE_BINDINGS),
+          TopologyRecoveryRetryLogic.RECOVER_CHANNEL
+              .andThen(TopologyRecoveryRetryLogic.RECOVER_CONSUMER_QUEUE)
+              .andThen(TopologyRecoveryRetryLogic.RECOVER_CONSUMER)
+              .andThen(TopologyRecoveryRetryLogic.RECOVER_CONSUMER_QUEUE_BINDINGS)
+              .andThen(TopologyRecoveryRetryLogic.RECOVER_PREVIOUS_CONSUMERS),
+          retryAttempts,
+          backoffPolicy);
+      this.connectionName = connectionName;
+    }
+
+    @Override
+    protected void log(final RecordedEntity entity, final Exception exception, final int attempts) {
+      log.info(
+          "Error while recovering {} for connection={}, retrying with {} more attempt(s).",
+          entity,
+          connectionName,
+          retryAttempts - attempts,
+          exception);
+    }
   }
 
   static class RetryingRecoveryListener implements RecoveryListener {
@@ -220,20 +266,21 @@ public class Utils {
     public void handleRecovery(final Recoverable recoverable) {
       final int errorCount = exceptionHandler.topologyRecoveryErrors.getAndSet(0);
       if (errorCount > 0) {
-        if (recoveryRetries++ <= props.getMaxTopologyRecoveryRetries()) {
+        if (recoveryRetries++ <= props.getMaxConnectionResetRecoveryRetries()) {
           log.warn(
               "Finished recovery for connection={} with {} recovery errors! Force closing connection in {} seconds to retry recovery again. Attempt {} of {}",
               name,
               errorCount,
               recoveryRetries,
               recoveryRetries,
-              props.getMaxTopologyRecoveryRetries());
+              props.getMaxConnectionResetRecoveryRetries());
           forceClose(connection, recoveryRetries, lastConnectionLoss);
         } else {
           log.error(
-              "WARNING! Finished recovery for connection={} with {} recovery errors! Reached max recovery retry attempts. Continuing on with failed recovery.",
+              "WARNING! Finished recovery for connection={} with {} recovery errors! Reached max of {} recovery retry attempts. Continuing on with failed recovery.",
               name,
-              errorCount);
+              errorCount,
+              props.getMaxConnectionResetRecoveryRetries());
           recoveryRetries = 0;
         }
       } else {

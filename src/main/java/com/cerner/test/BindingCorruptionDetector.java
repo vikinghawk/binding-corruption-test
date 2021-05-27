@@ -9,7 +9,9 @@ import com.rabbitmq.http.client.domain.BindingInfo;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -82,6 +84,9 @@ public class BindingCorruptionDetector implements CommandLineRunner, Environment
         final BasicProperties.Builder props = new BasicProperties.Builder();
         props.messageId(UUID.randomUUID().toString());
         props.expiration(String.valueOf(detectorProps.getWaitMillis() + 5000));
+        final Map<String, Object> headers = new LinkedHashMap<>();
+        headers.put("BindingCorruptionDetector", true);
+        props.headers(headers);
         final byte[] body =
             String.valueOf("BindingCorruptionDetector for routingKey=" + routingKey)
                 .getBytes(StandardCharsets.UTF_8);

@@ -17,7 +17,9 @@ public class BindingCorruptionTestProperties {
   protected String queueNamePrefix = "binding-corruption-test-";
   protected String routingKeyPrefix = "BindingCorruptionTest.";
   protected boolean autoDelete = true;
-  protected int maxTopologyRecoveryRetries = 10;
+  protected int maxTopologyRecoveryRetries = 100;
+  protected int maxConnectionResetRecoveryRetries = 0;
   protected String rabbitServiceName;
   protected long publishInterval = 5000;
+  protected int publishThreads = 5;
 }

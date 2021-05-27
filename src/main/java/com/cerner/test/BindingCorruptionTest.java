@@ -10,6 +10,12 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
 import org.slf4j.Logger;
@@ -26,6 +32,7 @@ public class BindingCorruptionTest implements EnvironmentAware {
   private final BindingCorruptionTestProperties testProps;
   private final List<AutorecoveringConnection> connections = new ArrayList<>();
   private Environment environment;
+  private ScheduledExecutorService exec;
 
   public BindingCorruptionTest(
       final RabbitProperties rabbitProps, final BindingCorruptionTestProperties testProps) {
@@ -87,11 +94,19 @@ public class BindingCorruptionTest implements EnvironmentAware {
                     final BasicProperties properties,
                     final byte[] body)
                     throws IOException {
-                  log.debug(
-                      "Got message={} from connection={}, channel={}",
-                      new String(body, StandardCharsets.UTF_8),
-                      connectionName,
-                      getChannel().getChannelNumber());
+                  if (properties.getHeaders().get("BindingCorruptionDetector") != null) {
+                    log.info(
+                        "Got detector message={} from connection={}, channel={}",
+                        new String(body, StandardCharsets.UTF_8),
+                        connectionName,
+                        getChannel().getChannelNumber());
+                  } else {
+                    log.debug(
+                        "Got message={} from connection={}, channel={}",
+                        new String(body, StandardCharsets.UTF_8),
+                        connectionName,
+                        getChannel().getChannelNumber());
+                  }
                   getChannel().basicAck(envelope.getDeliveryTag(), false);
                 }
               });
@@ -99,13 +114,55 @@ public class BindingCorruptionTest implements EnvironmentAware {
       }
     }
     log.info("Finished creating {} connections and {} queues", connections.size(), totalQueueCount);
+    // publish some messages to the queues just to generate load on the cluster
+    // Not using mandatory publishes here, only on the Detector side
     if (testProps.getPublishInterval() > 0) {
-      // TODO add some published message load
+      final AutorecoveringConnection pubConnection =
+          Utils.createConnection(rabbitProps, testProps, "BindingCorruptionTest-Publisher");
+      connections.add(pubConnection);
+      exec = Executors.newScheduledThreadPool(testProps.getPublishThreads());
+      final LinkedBlockingQueue<Channel> channelPool =
+          new LinkedBlockingQueue<>(testProps.getPublishThreads());
+      for (int i = 0; i < testProps.getPublishThreads(); i++) {
+        channelPool.add(pubConnection.createChannel());
+      }
+      for (int i = 1; i <= totalQueueCount; i++) {
+        final String routingKey = routingKeyPrefix + i;
+        exec.scheduleAtFixedRate(
+            () -> {
+              try {
+                final Channel channel = channelPool.take();
+                try {
+                  final BasicProperties.Builder props = new BasicProperties.Builder();
+                  props.messageId(UUID.randomUUID().toString());
+                  final byte[] body =
+                      String.valueOf("LoadGen for routingKey=" + routingKey)
+                          .getBytes(StandardCharsets.UTF_8);
+                  channel.basicPublish(
+                      testProps.getTopicExchange(), routingKey, props.build(), body);
+                } finally {
+                  channelPool.put(channel);
+                }
+              } catch (final Exception e) {
+                if (pubConnection.isOpen()) {
+                  log.error("Error publishing on routingKey={}", routingKey, e);
+                } else {
+                  log.debug("Error publishing on closed connection", e);
+                }
+              }
+            },
+            ThreadLocalRandom.current().nextLong(testProps.getPublishInterval()),
+            testProps.getPublishInterval(),
+            TimeUnit.MILLISECONDS);
+      }
     }
   }
 
   @PreDestroy
   public void stop() {
+    if (exec != null) {
+      exec.shutdownNow();
+    }
     connections.forEach(
         c -> {
           try {
