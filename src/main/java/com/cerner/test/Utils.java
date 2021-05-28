@@ -12,6 +12,7 @@ import com.rabbitmq.client.RecoveryListener;
 import com.rabbitmq.client.TopologyRecoveryException;
 import com.rabbitmq.client.impl.DefaultCredentialsProvider;
 import com.rabbitmq.client.impl.ForgivingExceptionHandler;
+import com.rabbitmq.client.impl.recovery.AutorecoveringChannel;
 import com.rabbitmq.client.impl.recovery.AutorecoveringConnection;
 import com.rabbitmq.client.impl.recovery.BackoffPolicy;
 import com.rabbitmq.client.impl.recovery.DefaultRetryHandler;
@@ -21,6 +22,7 @@ import com.rabbitmq.client.impl.recovery.RecordedEntity;
 import com.rabbitmq.client.impl.recovery.RecordedExchange;
 import com.rabbitmq.client.impl.recovery.RecordedQueue;
 import com.rabbitmq.client.impl.recovery.RecordedQueueBinding;
+import com.rabbitmq.client.impl.recovery.RetryContext;
 import com.rabbitmq.client.impl.recovery.TopologyRecoveryFilter;
 import com.rabbitmq.client.impl.recovery.TopologyRecoveryRetryLogic;
 import com.rabbitmq.http.client.Client;
@@ -28,6 +30,7 @@ import com.rabbitmq.http.client.ClientParameters;
 import com.rabbitmq.http.client.HttpComponentsRestTemplateConfigurator;
 import com.rabbitmq.utility.Utility;
 import java.io.IOException;
+import java.lang.reflect.Method;
 import java.net.MalformedURLException;
 import java.net.Socket;
 import java.net.URISyntaxException;
@@ -36,6 +39,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.Executors;
@@ -225,7 +229,7 @@ public class Utils {
                 AutorecoveringConnection connection = context.connection();
                 Set<String> queues = new LinkedHashSet<>();
                 for (Entry<String, RecordedQueue> entry :
-                    Utility.copy(context.connection().getRecordedQueues()).entrySet()) {
+                    Utility.copy(connection.getRecordedQueues()).entrySet()) {
                   if (context.entity().getChannel() == entry.getValue().getChannel()
                       && entry.getValue().isAutoDelete()) { // TODO isExclusive here too
                     connection.recoverQueue(entry.getKey(), entry.getValue(), false);
@@ -233,7 +237,7 @@ public class Utils {
                   }
                 }
                 for (final RecordedBinding binding :
-                    Utility.copy(context.connection().getRecordedBindings())) {
+                    Utility.copy(connection.getRecordedBindings())) {
                   if (binding instanceof RecordedQueueBinding
                       && queues.contains(binding.getDestination())) {
                     binding.recover();
@@ -242,6 +246,91 @@ public class Utils {
               }
               return null;
             };
+
+    // TODO All 4 of these next ones fix logic in TopologyRecoveryRetryLogic
+    // Need to call recordedqueue.recover() instead of connection.recoverQueue()
+    // connection.recoverQueue swallows any additional failures and we don't keep retrying
+    // On PR, still need a way to update queue name for server named queues
+
+    public static final DefaultRetryHandler.RetryOperation<Void> RECOVER_QUEUE =
+        context -> {
+          if (context.entity() instanceof RecordedQueue) {
+            final RecordedQueue recordedQueue = context.queue();
+            // connection.recoverQueue(recordedQueue.getName(), recordedQueue, false);
+            recordedQueue.recover();
+          }
+          return null;
+        };
+
+    public static final DefaultRetryHandler.RetryOperation<Void> RECOVER_BINDING_QUEUE =
+        context -> {
+          if (context.entity() instanceof RecordedQueueBinding) {
+            RecordedBinding binding = context.binding();
+            AutorecoveringConnection connection = context.connection();
+            RecordedQueue recordedQueue =
+                connection.getRecordedQueues().get(binding.getDestination());
+            if (recordedQueue != null) {
+              // connection.recoverQueue(recordedQueue.getName(), recordedQueue, false);
+              recordedQueue.recover();
+            }
+          }
+          return null;
+        };
+
+    public static final DefaultRetryHandler.RetryOperation<Void> RECOVER_CONSUMER_QUEUE =
+        context -> {
+          if (context.entity() instanceof RecordedConsumer) {
+            RecordedConsumer consumer = context.consumer();
+            AutorecoveringConnection connection = context.connection();
+            RecordedQueue recordedQueue = connection.getRecordedQueues().get(consumer.getQueue());
+            if (recordedQueue != null) {
+              // connection.recoverQueue(recordedQueue.getName(), recordedQueue, false);
+              recordedQueue.recover();
+            }
+          }
+          return null;
+        };
+
+    public static final DefaultRetryHandler.RetryOperation<String> RECOVER_PREVIOUS_CONSUMERS =
+        context -> {
+          if (context.entity() instanceof RecordedConsumer) {
+            final AutorecoveringChannel channel = context.consumer().getChannel();
+            for (RecordedConsumer consumer :
+                Utility.copy(context.connection().getRecordedConsumers()).values()) {
+              if (consumer == context.entity()) {
+                break;
+              } else if (consumer.getChannel() == channel) {
+                final RetryContext retryContext =
+                    new RetryContext(consumer, context.exception(), context.connection());
+                RECOVER_CONSUMER_QUEUE.call(retryContext);
+                // context.connection().recoverConsumer(consumer.getConsumerTag(), consumer, false);
+                recoverConsumer(consumer, context.connection());
+                TopologyRecoveryRetryLogic.RECOVER_CONSUMER_QUEUE_BINDINGS.call(retryContext);
+              }
+            }
+            return context.consumer().getConsumerTag();
+          }
+          return null;
+        };
+
+    private static void recoverConsumer(
+        final RecordedConsumer consumer, final AutorecoveringConnection connection)
+        throws Exception {
+      final String tag = consumer.getConsumerTag();
+      final String newTag = consumer.recover();
+      if (tag != null && !tag.equals(newTag)) {
+        final Map<String, RecordedConsumer> consumers = connection.getRecordedConsumers();
+        synchronized (consumers) {
+          consumers.remove(tag);
+          consumers.put(newTag, consumer);
+        }
+        final Method m =
+            AutorecoveringChannel.class.getDeclaredMethod(
+                "updateConsumerTag", String.class, String.class);
+        m.setAccessible(true);
+        m.invoke(consumer.getChannel(), tag, newTag);
+      }
+    }
 
     private final String connectionName;
 
@@ -253,19 +342,19 @@ public class Utils {
           TopologyRecoveryRetryLogic.CHANNEL_CLOSED_NOT_FOUND,
           TopologyRecoveryRetryLogic.CHANNEL_CLOSED_NOT_FOUND,
           TopologyRecoveryRetryLogic.RECOVER_CHANNEL
-              .andThen(TopologyRecoveryRetryLogic.RECOVER_QUEUE)
+              .andThen(RECOVER_QUEUE)
               .andThen(RECOVER_PREVIOUS_AUTO_DELETE_QUEUES),
           ctx -> null,
           TopologyRecoveryRetryLogic.RECOVER_CHANNEL
-              .andThen(TopologyRecoveryRetryLogic.RECOVER_BINDING_QUEUE)
+              .andThen(RECOVER_BINDING_QUEUE)
               .andThen(TopologyRecoveryRetryLogic.RECOVER_BINDING)
               .andThen(TopologyRecoveryRetryLogic.RECOVER_PREVIOUS_QUEUE_BINDINGS)
               .andThen(RECOVER_PREVIOUS_AUTO_DELETE_QUEUES),
           TopologyRecoveryRetryLogic.RECOVER_CHANNEL
-              .andThen(TopologyRecoveryRetryLogic.RECOVER_CONSUMER_QUEUE)
+              .andThen(RECOVER_CONSUMER_QUEUE)
               .andThen(TopologyRecoveryRetryLogic.RECOVER_CONSUMER)
               .andThen(TopologyRecoveryRetryLogic.RECOVER_CONSUMER_QUEUE_BINDINGS)
-              .andThen(TopologyRecoveryRetryLogic.RECOVER_PREVIOUS_CONSUMERS),
+              .andThen(RECOVER_PREVIOUS_CONSUMERS),
           retryAttempts,
           backoffPolicy);
       this.connectionName = connectionName;

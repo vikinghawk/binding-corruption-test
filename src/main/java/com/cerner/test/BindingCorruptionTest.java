@@ -96,6 +96,7 @@ public class BindingCorruptionTest implements EnvironmentAware {
                     throws IOException {
                   try {
                     if (properties != null
+                        && properties.getHeaders() != null
                         && properties.getHeaders().get("BindingCorruptionDetector") != null) {
                       log.info(
                           "Got detector message={} from connection={}, channel={}",
