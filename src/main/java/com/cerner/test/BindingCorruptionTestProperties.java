@@ -10,7 +10,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class BindingCorruptionTestProperties {
 
   protected final List<Long> recoveryDelays = new ArrayList<>();
-  protected int connections = 100;
+  protected int connections = 50;
   protected int channelsPerConnection = 10;
   protected int queuesPerChannel = 10;
   protected String topicExchange = "binding.corruption.test.topic";

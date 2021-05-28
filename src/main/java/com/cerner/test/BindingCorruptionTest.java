@@ -160,11 +160,16 @@ public class BindingCorruptionTest implements EnvironmentAware {
             testProps.getPublishInterval(),
             TimeUnit.MILLISECONDS);
       }
+      log.info(
+          "Publishing messages for {} routingKeys every {} ms",
+          totalQueueCount,
+          testProps.getPublishInterval());
     }
   }
 
   @PreDestroy
   public void stop() {
+    log.info("Shutting down...");
     if (exec != null) {
       exec.shutdownNow();
     }
@@ -173,7 +178,7 @@ public class BindingCorruptionTest implements EnvironmentAware {
           try {
             c.close();
           } catch (IOException e) {
-            e.printStackTrace();
+            log.error("Error closing connection", e);
           }
         });
     connections.clear();
