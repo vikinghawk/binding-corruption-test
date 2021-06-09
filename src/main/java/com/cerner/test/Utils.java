@@ -155,7 +155,7 @@ public class Utils {
       // delays here such as 5 seconds. But on a cluster with message load, i have tested setting
       // this as high as 10 seconds and still see binding corruptions.
       // delays = Arrays.asList(1L, 1000L, 1000L, 2000L, 3000L, 5000L, 8000L, 13000L);
-      delays = Arrays.asList(1000L);
+      delays = Arrays.asList(5000L);
       // delays = Arrays.asList(5000L);
     }
     cf.setRecoveryDelayHandler(new ExponentialBackoffDelayHandler(delays));
@@ -165,7 +165,7 @@ public class Utils {
     cf.setTopologyRecoveryRetryHandler(
         new CustomRetryHandler(
             customProps.getMaxTopologyRecoveryRetries(),
-            nbAttempts -> Thread.sleep(Math.min(nbAttempts * 1000L, 5000L)),
+            nbAttempts -> Thread.sleep(Math.min(nbAttempts * 200L, 5000L)),
             name));
 
     // configure timeouts
