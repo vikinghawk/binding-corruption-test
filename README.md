@@ -8,7 +8,7 @@ This app is creating transient, auto-delete queues that are bound to a durable t
 
 We also have the following server-side policy applied to these queues:
 
-![Queue Policy](policy.png)
+![Queue Policy](policy.PNG)
 
 ## BindingCorruptionDetector
 
