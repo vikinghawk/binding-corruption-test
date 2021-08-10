@@ -15,6 +15,7 @@ import com.rabbitmq.client.impl.ForgivingExceptionHandler;
 import com.rabbitmq.client.impl.recovery.AutorecoveringConnection;
 import com.rabbitmq.client.impl.recovery.RecordedConsumer;
 import com.rabbitmq.client.impl.recovery.RecordedExchange;
+import com.rabbitmq.client.impl.recovery.RecoveredQueueNameSupplier;
 import com.rabbitmq.client.impl.recovery.TopologyRecoveryFilter;
 import com.rabbitmq.http.client.Client;
 import com.rabbitmq.http.client.ClientParameters;
@@ -154,8 +155,8 @@ public class Utils {
       // Note: On a cluster with no load, i can't recreate the binding corruption issue with higher
       // delays here such as 5 seconds. But on a cluster with message load, i have tested setting
       // this as high as 10 seconds and still see binding corruptions.
-      // delays = Arrays.asList(1L, 1000L, 1000L, 2000L, 3000L, 5000L, 8000L, 13000L);
-      delays = Arrays.asList(5000L);
+      delays = Arrays.asList(0L, 1000L, 1000L, 2000L, 3000L, 5000L, 8000L, 13000L);
+      //      delays = Arrays.asList(1000L);
       // delays = Arrays.asList(5000L);
     }
     cf.setRecoveryDelayHandler(new ExponentialBackoffDelayHandler(delays));
@@ -167,6 +168,7 @@ public class Utils {
             customProps.getMaxTopologyRecoveryRetries(),
             nbAttempts -> Thread.sleep(Math.min(nbAttempts * 200L, 5000L)),
             name));
+    cf.setRecoveredQueueNameSupplier(RECOVERED_QUEUE_NAMER);
 
     // configure timeouts
     cf.setRequestedHeartbeat(30);
@@ -186,6 +188,13 @@ public class Utils {
     cf.setExceptionHandler(new RetryingExceptionHandler(name));
     return cf;
   }
+
+  private static final RecoveredQueueNameSupplier RECOVERED_QUEUE_NAMER =
+      q -> {
+        String postfix = "-recovered@" + System.currentTimeMillis();
+        int idx = q.getName().indexOf("-recovered@");
+        return (idx == -1 ? q.getName() : q.getName().substring(0, idx)) + postfix;
+      };
 
   static class RetryingRecoveryListener implements RecoveryListener {
 
