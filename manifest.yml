@@ -3,18 +3,22 @@ applications:
 - name: BindingCorruptionTest
   path: target/binding-corruption-test-0.0.1-SNAPSHOT.jar
   no-route: false
-  memory: 2048M
+  memory: 1024M
   instances: 0
   buildpacks:
   - java_buildpack_offline
   services:
-  - rabbitmq-02
+  - rabbitmq-04
   - config-server
   health-check-type: process
   env:
     SPRING_PROFILES_ACTIVE: test
-    JAVA_OPTS: '-Djava.security.egd=file:/dev/./urandom -XX:+UseG1GC -XX:+UseStringDeduplication -XX:MaxDirectMemorySize=10M -XX:ReservedCodeCacheSize=140M -Xss1M'
-    JBP_CONFIG_OPEN_JDK_JRE: '{memory_calculator: {class_count: 25000,headroom: 10.0,stack_threads: 250}}'
+    JAVA_OPTS: '-Djava.security.egd=file:/dev/./urandom -XX:+UseG1GC -XX:+UseStringDeduplication
+      -Dbinding-corruption-test.connections=25 -Dbinding-corruption-test.channelsPerConnection=12
+      -Dbinding-corruption-test.queuesPerChannel=2 -Dbinding-corruption-test.consumersPerQueue=10
+      -Dbinding-corruption-test.rabbitServiceName=rabbitmq-04 -Dspring.profiles.active=test
+      -XX:MaxDirectMemorySize=10M -XX:ReservedCodeCacheSize=140M -Xss1M'
+    JBP_CONFIG_OPEN_JDK_JRE: '{memory_calculator: {class_count: 25000,headroom: 5.0,stack_threads: 200}}'
     JBP_CONFIG_SPRING_AUTO_RECONFIGURATION: '{ enabled: false }'
     SOLUTION_TEAM: core
     SPRING_APPLICATION_NAME: BindingCorruptionTest

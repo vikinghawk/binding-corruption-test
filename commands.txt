@@ -1,0 +1,90 @@
+# test-d-s-mirrored
+JAVA_OPTS="-agentpath:$PWD/.java-buildpack/open_jdk_jre/bin/jvmkill-1.16.0_RELEASE=printHeapHistogram=1
+               -Djava.io.tmpdir=$TMPDIR -XX:ActiveProcessorCount=$(nproc)
+               -Djava.ext.dirs=$PWD/.java-buildpack/container_security_provider:$PWD/.java-buildpack/open_jdk_jre/lib/ext
+               -Djava.security.properties=$PWD/.java-buildpack/java_security/java.security  -Dbinding-corruption-test.connections=80
+               -Dspring.profiles.active=test-d-s-mirrored $JAVA_OPTS" &&
+               CALCULATED_MEMORY=$($PWD/.java-buildpack/open_jdk_jre/bin/java-buildpack-memory-calculator-3.13.0_RELEASE
+               -totMemory=$MEMORY_LIMIT -headRoom=10.0 -loadedClasses=25000 -poolType=metaspace -stackThreads=250 -vmOptions="$JAVA_OPTS")
+               && echo JVM Memory Configuration: $CALCULATED_MEMORY && JAVA_OPTS="$JAVA_OPTS $CALCULATED_MEMORY" && MALLOC_ARENA_MAX=2
+               SERVER_PORT=$PORT eval exec $PWD/.java-buildpack/open_jdk_jre/bin/java $JAVA_OPTS -cp $PWD/.
+               org.springframework.boot.loader.JarLauncher
+
+# test-nd-ns-autodelete
+JAVA_OPTS="-agentpath:$PWD/.java-buildpack/open_jdk_jre/bin/jvmkill-1.16.0_RELEASE=printHeapHistogram=1
+              -Djava.io.tmpdir=$TMPDIR -XX:ActiveProcessorCount=$(nproc)
+              -Djava.ext.dirs=$PWD/.java-buildpack/container_security_provider:$PWD/.java-buildpack/open_jdk_jre/lib/ext
+              -Djava.security.properties=$PWD/.java-buildpack/java_security/java.security -Dbinding-corruption-test.connections=60
+              -Dspring.profiles.active=test-nd-ns-autodelete $JAVA_OPTS" &&
+              CALCULATED_MEMORY=$($PWD/.java-buildpack/open_jdk_jre/bin/java-buildpack-memory-calculator-3.13.0_RELEASE
+              -totMemory=$MEMORY_LIMIT -headRoom=10.0 -loadedClasses=25000 -poolType=metaspace -stackThreads=250 -vmOptions="$JAVA_OPTS")
+              && echo JVM Memory Configuration: $CALCULATED_MEMORY && JAVA_OPTS="$JAVA_OPTS $CALCULATED_MEMORY" && MALLOC_ARENA_MAX=2
+              SERVER_PORT=$PORT eval exec $PWD/.java-buildpack/open_jdk_jre/bin/java $JAVA_OPTS -cp $PWD/.
+              org.springframework.boot.loader.JarLauncher
+
+
+# Goal 600 connections x 7000 channels x 19K queues
+# Taking 4K quorum queues off the top, we need 15K queues
+# 2:1 balance of ibus-d-s mirrored queues (10K) vs ibus-nd-ns classic queues (5K)
+
+400 connections x 10 channels/connection x 2 queue/channel = 8K queues
+400 connections x 10 channels/connection x 3 queue/channel = 12K queues
+
+200 connections x 10 channels/connection x 2 queue/channel = 4K queues
+200 connections x 10 channels/connection x 3 queue/channel = 6K queues
+
+d-s   418 connections x 12 channels/connection x 2 queue/channel = ~10K queues
+nd-ns 209 connections x 12 channels/connection x 2 queue/channel = ~5K queues
+Total 627 connections x 7524 channels X (10,032 + 5,016) = 15,048 queues
+
+627
+# test-nd-ns-autodelete-5k-rmq04
+JAVA_OPTS="-agentpath:$PWD/.java-buildpack/open_jdk_jre/bin/jvmkill-1.16.0_RELEASE=printHeapHistogram=1
+              -Djava.io.tmpdir=$TMPDIR -XX:ActiveProcessorCount=$(nproc)
+              -Djava.ext.dirs=$PWD/.java-buildpack/container_security_provider:$PWD/.java-buildpack/open_jdk_jre/lib/ext
+              -Djava.security.properties=$PWD/.java-buildpack/java_security/java.security
+              -Dbinding-corruption-test.connections=50
+              -Dbinding-corruption-test.channelsPerConnection=12
+              -Dbinding-corruption-test.queuesPerChannel=2
+              -Dbinding-corruption-test.consumersPerQueue=10
+              -Dbinding-corruption-test.rabbitServiceName=rabbitmq-04
+              -Dspring.profiles.active=test $JAVA_OPTS" &&
+              CALCULATED_MEMORY=$($PWD/.java-buildpack/open_jdk_jre/bin/java-buildpack-memory-calculator-3.13.0_RELEASE
+              -totMemory=$MEMORY_LIMIT -headRoom=10.0 -loadedClasses=25000 -poolType=metaspace -stackThreads=250 -vmOptions="$JAVA_OPTS")
+              && echo JVM Memory Configuration: $CALCULATED_MEMORY && JAVA_OPTS="$JAVA_OPTS $CALCULATED_MEMORY" && MALLOC_ARENA_MAX=2
+              SERVER_PORT=$PORT eval exec $PWD/.java-buildpack/open_jdk_jre/bin/java $JAVA_OPTS -cp $PWD/.
+              org.springframework.boot.loader.JarLauncher
+
+# RabbitMQ-05
+# test-nd-ns-autodelete-15k-rmq05
+JAVA_OPTS="-agentpath:$PWD/.java-buildpack/open_jdk_jre/bin/jvmkill-1.16.0_RELEASE=printHeapHistogram=1
+              -Djava.io.tmpdir=$TMPDIR -XX:ActiveProcessorCount=$(nproc)
+              -Djava.ext.dirs=$PWD/.java-buildpack/container_security_provider:$PWD/.java-buildpack/open_jdk_jre/lib/ext
+              -Djava.security.properties=$PWD/.java-buildpack/java_security/java.security
+              -Dbinding-corruption-test.connections=627
+              -Dbinding-corruption-test.channelsPerConnection=12
+              -Dbinding-corruption-test.queuesPerChannel=2
+              -Dbinding-corruption-test.rabbitServiceName=rabbitmq-05
+              -Dspring.profiles.active=test-nd-ns-autodelete $JAVA_OPTS" &&
+              CALCULATED_MEMORY=$($PWD/.java-buildpack/open_jdk_jre/bin/java-buildpack-memory-calculator-3.13.0_RELEASE
+              -totMemory=$MEMORY_LIMIT -headRoom=10.0 -loadedClasses=25000 -poolType=metaspace -stackThreads=250 -vmOptions="$JAVA_OPTS")
+              && echo JVM Memory Configuration: $CALCULATED_MEMORY && JAVA_OPTS="$JAVA_OPTS $CALCULATED_MEMORY" && MALLOC_ARENA_MAX=2
+              SERVER_PORT=$PORT eval exec $PWD/.java-buildpack/open_jdk_jre/bin/java $JAVA_OPTS -cp $PWD/.
+              org.springframework.boot.loader.JarLauncher
+
+## POC test-nd-ns-autodelete-5k-rmq02
+JAVA_OPTS="-agentpath:$PWD/.java-buildpack/open_jdk_jre/bin/jvmkill-1.16.0_RELEASE=printHeapHistogram=1
+              -Djava.io.tmpdir=$TMPDIR -XX:ActiveProcessorCount=$(nproc)
+              -Djava.ext.dirs=$PWD/.java-buildpack/container_security_provider:$PWD/.java-buildpack/open_jdk_jre/lib/ext
+              -Djava.security.properties=$PWD/.java-buildpack/java_security/java.security
+              -Dbinding-corruption-test.connections=209
+              -Dbinding-corruption-test.channelsPerConnection=12
+              -Dbinding-corruption-test.queuesPerChannel=2
+              -Dbinding-corruption-test.consumersPerQueue=10
+              -Dbinding-corruption-test.rabbitServiceName=rabbitmq-02
+              -Dspring.profiles.active=test $JAVA_OPTS" &&
+              CALCULATED_MEMORY=$($PWD/.java-buildpack/open_jdk_jre/bin/java-buildpack-memory-calculator-3.13.0_RELEASE
+              -totMemory=$MEMORY_LIMIT -headRoom=10.0 -loadedClasses=25000 -poolType=metaspace -stackThreads=250 -vmOptions="$JAVA_OPTS")
+              && echo JVM Memory Configuration: $CALCULATED_MEMORY && JAVA_OPTS="$JAVA_OPTS $CALCULATED_MEMORY" && MALLOC_ARENA_MAX=2
+              SERVER_PORT=$PORT eval exec $PWD/.java-buildpack/open_jdk_jre/bin/java $JAVA_OPTS -cp $PWD/.
+              org.springframework.boot.loader.JarLauncher

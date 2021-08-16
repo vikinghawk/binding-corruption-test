@@ -48,6 +48,7 @@ public class BindingCorruptionTest implements EnvironmentAware {
   @PostConstruct
   public void start() throws Exception {
     Utils.initTasConfig(rabbitProps, environment, testProps, null);
+    log.info("Using the following configurations: {}", testProps.toString());
     final long now = System.currentTimeMillis();
     final String queuePrefix = testProps.getQueueNamePrefix() + now + "-";
     final String routingKeyPrefix = testProps.getRoutingKeyPrefix() + now + ".";
@@ -84,37 +85,43 @@ public class BindingCorruptionTest implements EnvironmentAware {
           channel.queueDeclare(queueName, false, false, testProps.isAutoDelete(), null);
           channel.queueBind(
               queueName, testProps.getTopicExchange(), routingKeyPrefix + ++totalQueueCount);
-          channel.basicConsume(
-              queueName,
-              new DefaultConsumer(channel) {
-                @Override
-                public void handleDelivery(
-                    final String consumerTag,
-                    final Envelope envelope,
-                    final BasicProperties properties,
-                    final byte[] body)
-                    throws IOException {
-                  try {
-                    if (properties != null
-                        && properties.getHeaders() != null
-                        && properties.getHeaders().get("BindingCorruptionDetector") != null) {
-                      log.info(
-                          "Got detector message={} from connection={}, channel={}",
-                          new String(body, StandardCharsets.UTF_8),
-                          connectionName,
-                          getChannel().getChannelNumber());
-                    } else {
-                      log.debug(
-                          "Got message={} from connection={}, channel={}",
-                          new String(body, StandardCharsets.UTF_8),
-                          connectionName,
-                          getChannel().getChannelNumber());
-                    }
-                  } finally {
-                    getChannel().basicAck(envelope.getDeliveryTag(), false);
+
+          List<DefaultConsumer> consumers = new ArrayList<>();
+          for (int l = 1; l <= testProps.getConsumersPerQueue(); l++) {
+            consumers.add(new DefaultConsumer(channel) {
+              @Override
+              public void handleDelivery(
+                final String consumerTag,
+                final Envelope envelope,
+                final BasicProperties properties,
+                final byte[] body)
+                throws IOException {
+                try {
+                  if (properties != null
+                    && properties.getHeaders() != null
+                    && properties.getHeaders().get("BindingCorruptionDetector") != null) {
+                    log.info(
+                      "Got detector message={} from connection={}, channel={}",
+                      new String(body, StandardCharsets.UTF_8),
+                      connectionName,
+                      getChannel().getChannelNumber());
+                  } else {
+                    log.debug(
+                      "Got message={} from connection={}, channel={}",
+                      new String(body, StandardCharsets.UTF_8),
+                      connectionName,
+                      getChannel().getChannelNumber());
                   }
+                } finally {
+                  getChannel().basicAck(envelope.getDeliveryTag(), false);
                 }
-              });
+              }
+            });
+          }
+
+          for (final DefaultConsumer consumer : consumers) {
+            channel.basicConsume(queueName, consumer);
+          }
         }
       }
     }

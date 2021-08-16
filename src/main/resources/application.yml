@@ -26,11 +26,11 @@ spring:
   profiles: test
 binding-corruption-test:
   enabled: true
-  rabbitServiceName: rabbitmq-02
+
 ---
 spring:
   profiles: detector
 binding-corruption-detector:
   enabled: true
 binding-corruption-test:
-  rabbitServiceName: rabbitmq-02
+  rabbitServiceName: rabbitmq-04

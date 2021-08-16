@@ -13,10 +13,12 @@ public class BindingCorruptionTestProperties {
   protected int connections = 50;
   protected int channelsPerConnection = 10;
   protected int queuesPerChannel = 10;
+  protected int consumersPerQueue = 1;
   protected String topicExchange = "binding.corruption.test.topic";
   protected String queueNamePrefix = "binding-corruption-test-";
   protected String routingKeyPrefix = "BindingCorruptionTest.";
   protected boolean autoDelete = true;
+  protected boolean isDurable = false;
   protected int maxTopologyRecoveryRetries = 100;
   protected int maxConnectionResetRecoveryRetries = 0;
   protected String rabbitServiceName;
